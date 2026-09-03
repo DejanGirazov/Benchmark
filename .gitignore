@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# env files
+.env
+.env.local
+**/.env
+
+# build output
+dist/
+build/
+.next/
+**/dist/
+
+# expo (FitPro frontend, if that repo is ever alongside this one — not relevant here otherwise)
+.expo/
+
+# logs
+*.log
+npm-debug.log*
+
+# OS/editor cruft
+.DS_Store
+.vscode/
+*.swp
