@@ -27,10 +27,18 @@ export const generatorStatusEnum = pgEnum("generator_status", [
   "busy",
 ]);
 
+export const users = pgTable("users",{
+  id: uuid("id").defaultRandom().primaryKey(),
+  email: varchar("email", { length: 200 }).notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+})
+
 // ---------- Projects ----------
 
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
+  ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 200 }).notNull(),
   description: text("description"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
