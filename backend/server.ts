@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import http from "http";
 import authRoutes from "./routes/authRoutes";
+import projectRoutes from "./routes/projectRoute";
 
 dotenv.config();
 const app = express();
@@ -19,6 +20,7 @@ app.use(
 );
 
 app.use("/api/auth", authRoutes);
+app.use("/api/projects", projectRoutes);
 
 const PORT = Number(process.env.PORT) || 4000;
 server.listen(PORT, () => {
