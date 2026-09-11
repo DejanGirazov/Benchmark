@@ -1,4 +1,4 @@
-import { users, projects } from "../db/schema";
+import { projects } from "../db/schema";
 import { db } from "../db/index";
 import { eq } from "drizzle-orm";
 import { Request, Response } from "express";
