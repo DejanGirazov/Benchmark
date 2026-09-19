@@ -1,6 +1,6 @@
 import { projects } from "../db/schema";
 import { db } from "../db/index";
-import { eq } from "drizzle-orm";
+import { eq,and } from "drizzle-orm";
 import { Request, Response } from "express";
 
 export const createProject = async (req: Request, res: Response) => {
@@ -33,8 +33,9 @@ export const getProjects = async (req: Request, res: Response) => {
 };
 export const getProjectById = async (req: Request, res: Response) => {
     try{
+        const userId = req.user!.id;
         const projectId = req.params.id as string;
-        const project = await db.select().from(projects).where(eq(projects.id, projectId));
+        const project = await db.select().from(projects).where(and(eq(projects.ownerId, userId), eq(projects.id, projectId))).limit(1);
         res.status(200).json(project);
     }catch(error){
         console.error("Error fetching project:", error);
@@ -43,12 +44,13 @@ export const getProjectById = async (req: Request, res: Response) => {
 };
 export const updateProject = async (req: Request, res: Response) => {
     try{
+        const userId = req.user!.id;
         const projectId = req.params.id as string;
         const { name, description } = req.body;
         const updatedProject = await db.update(projects).set({
             name: name ?? undefined,
             description: description ?? undefined
-        }).where(eq(projects.id, projectId)).returning();
+        }).where(and(eq(projects.ownerId, userId), eq(projects.id, projectId))).returning();
         res.status(200).json(updatedProject[0]);
     }catch(error){
         console.error("Error updating project:", error);
@@ -57,8 +59,9 @@ export const updateProject = async (req: Request, res: Response) => {
 };
 export const deleteProject = async (req: Request, res: Response) => {
     try{
+        const userId = req.user!.id;
         const projectId = req.params.id as string;
-        await db.delete(projects).where(eq(projects.id, projectId));
+        await db.delete(projects).where(and(eq(projects.ownerId, userId), eq(projects.id, projectId)));
         res.status(200).json({ message: "Project deleted successfully" });
     }catch(error){
         console.error("Error deleting project:", error);
