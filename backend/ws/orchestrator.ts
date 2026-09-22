@@ -1,5 +1,5 @@
 // ws/orchestrator.ts
-import { eq, sql } from "drizzle-orm";
+import { eq, sql,and } from "drizzle-orm";
 import { db } from "../db/index";
 import {
   tests,
@@ -19,7 +19,9 @@ import { broadcastToTestSubscribers } from "../sse/broadcaster";
 // ============================================================
 
 export async function startTestOrchestration(testId: string) {
-  const [test] = await db.select().from(tests).where(eq(tests.id, testId));
+  const notified: string[] = [];
+  try{
+    const [test] = await db.select().from(tests).where(eq(tests.id, testId));
   const [workflow] = await db
     .select()
     .from(workflows)
@@ -37,21 +39,20 @@ export async function startTestOrchestration(testId: string) {
     .where(eq(generators.status, "online"));
 
   const available = onlineGenerators.filter((g) => liveGenerators.has(g.id));
+    if (available.length === 0) {
+      await db
+        .update(tests)
+        .set({ status: "failed", endedAt: new Date() }) // endedAt was missing here
+        .where(eq(tests.id, testId));
+      broadcastToTestSubscribers(testId, {
+        type: "status",
+        status: "failed",
+        reason: "No generators connected",
+      });
+      return;
 
-  if (available.length === 0) {
-    await db
-      .update(tests)
-      .set({ status: "failed" })
-      .where(eq(tests.id, testId));
-    broadcastToTestSubscribers(testId, {
-      type: "status",
-      status: "failed",
-      reason: "No generators connected",
-    });
-    return;
-  }
-
-  const assignments = splitUsers(test.virtualUsers, available);
+    }
+    const assignments = splitUsers(test.virtualUsers, available);
 
   // Persist the plan BEFORE sending anything — if the process crashes
   // mid-loop below, we still know what was supposed to happen
@@ -62,30 +63,65 @@ export async function startTestOrchestration(testId: string) {
       assignedUsers: a.assignedUsers,
     })),
   );
-
   for (const a of assignments) {
-    sendToGenerator(a.generatorId, {
-      type: "start_test",
-      testId,
-      baseUrl: endpoint.baseUrl,
-      workflow: workflow.definition,
-      assignedUsers: a.assignedUsers,
-      durationSeconds: test.durationSeconds,
-      rampUpSeconds: test.rampUpSeconds,
-    });
+      const sent = sendToGenerator(a.generatorId, {
+        type: "start_test",
+        testId,
+        baseUrl: endpoint.baseUrl,
+        workflow: workflow.definition,
+        assignedUsers: a.assignedUsers,
+        durationSeconds: test.durationSeconds,
+        rampUpSeconds: test.rampUpSeconds,
+      });
+      if (!sent) {
+        throw new Error(`Generator ${a.generatorId} disconnected before start_test`);
+      }
+      notified.push(a.generatorId);
+
+      await db
+        .update(generators)
+        .set({ status: "busy" })
+        .where(eq(generators.id, a.generatorId));
+    }
 
     await db
-      .update(generators)
-      .set({ status: "busy" })
-      .where(eq(generators.id, a.generatorId));
+      .update(tests)
+      .set({ status: "running", startedAt: new Date() })
+      .where(eq(tests.id, testId));
+
+    broadcastToTestSubscribers(testId, { type: "status", status: "running" });
+  } catch (error) {
+    console.error(`[orchestrator] failed to start test ${testId}:`, error);
+    await abortFailedStart(testId, notified);
+  }
+}
+
+async function abortFailedStart(testId: string, notified: string[]) {
+  // The cleanup can fail too (DB down, for example). Catch it so it never
+  // hides the original error or crashes the request.
+  try {
+    for (const id of notified) {
+      sendToGenerator(id, { type: "cancel_test", testId });
+      // Only flip busy -> online, so a generator that went offline isn't resurrected
+      await db
+        .update(generators)
+        .set({ status: "online" })
+        .where(and(eq(generators.id, id), eq(generators.status, "busy")));
+    }
+    await db
+      .update(tests)
+      .set({ status: "failed", endedAt: new Date() })
+      .where(eq(tests.id, testId));
+  } catch (cleanupError) {
+    console.error(`[orchestrator] cleanup also failed for test ${testId}:`, cleanupError);
   }
 
-  await db
-    .update(tests)
-    .set({ status: "running", startedAt: new Date() })
-    .where(eq(tests.id, testId));
-
-  broadcastToTestSubscribers(testId, { type: "status", status: "running" });
+  // Generic reason on purpose: the details are in the server log, not the browser
+  broadcastToTestSubscribers(testId, {
+    type: "status",
+    status: "failed",
+    reason: "Failed to start test",
+  });
 }
 
 function splitUsers(
