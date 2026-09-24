@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { and, eq,desc } from "drizzle-orm";
-import { tests, projects, workflows, endpoints , metrics} from "../db/schema";
+import { and, eq,desc , inArray} from "drizzle-orm";
+import { tests, projects, workflows, testWorkflows, metrics} from "../db/schema";
 import { db } from "../db/index";
 // You'll create this in your websocket manager module
 import { startTestOrchestration, cancelTestOrchestration } from "../ws/orchestrator";
@@ -10,6 +10,7 @@ import {
   sendEvent,
   isEndStatus,
 } from "../sse/broadcaster";
+import { CreateTestBody } from "../ws/types";
 
 async function getOwnedProject(projectId: string, userId: string) {
   const project = await db
@@ -26,27 +27,27 @@ export const createTest = async (req: Request, res: Response) => {
     const projectId = req.params.projectId as string;
     const {
       name,
-      workflowId,
-      endpointId,
+      workflowWeights,
       virtualUsers,
       durationSeconds,
       rampUpSeconds,
       config,
-    } = req.body;
+    }: CreateTestBody = req.body;
 
     const project = await getOwnedProject(projectId, userId);
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    if (!workflowId || !endpointId || !virtualUsers || !durationSeconds) {
-      return res.status(400).json({
-        message:
-          "workflowId, endpointId, virtualUsers, and durationSeconds are required",
-      });
+    if (!Array.isArray(workflowWeights) || workflowWeights.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "At least one workflow with a weight is required" });
     }
 
     if (
+      !virtualUsers ||
+      !durationSeconds ||
       !Number.isInteger(virtualUsers) ||
       virtualUsers <= 0 ||
       !Number.isInteger(durationSeconds) ||
@@ -57,36 +58,24 @@ export const createTest = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Invalid numeric parameters" });
     }
 
-    // Make sure workflow and endpoint actually belong to this project
-    const workflow = await db
-      .select()
+    const workflowIds = workflowWeights.map((w) => w.workflowId);
+    const ownedWorkflows = await db
+      .select({ id: workflows.id })
       .from(workflows)
-      .where(and(eq(workflows.id, workflowId), eq(workflows.projectId, projectId)))
-      .limit(1);
-    if (workflow.length === 0) {
+      .where(and(eq(workflows.projectId, projectId), inArray(workflows.id, workflowIds)));
+
+    if (ownedWorkflows.length !== new Set(workflowIds).size) {
       return res
         .status(404)
-        .json({ message: "Workflow not found in this project" });
+        .json({ message: "One or more workflows not found in this project" });
     }
 
-    const endpoint = await db
-      .select()
-      .from(endpoints)
-      .where(and(eq(endpoints.id, endpointId), eq(endpoints.projectId, projectId)))
-      .limit(1);
-    if (endpoint.length === 0) {
-      return res
-        .status(404)
-        .json({ message: "Endpoint not found in this project" });
-    }
-
-    const newTest = await db
+    const [newTest] = await db
       .insert(tests)
       .values({
         projectId,
-        workflowId,
-        endpointId,
         name: name || null,
+        targetUrl: project.baseUrl,
         virtualUsers,
         durationSeconds,
         rampUpSeconds: rampUpSeconds ?? 0,
@@ -95,7 +84,15 @@ export const createTest = async (req: Request, res: Response) => {
       })
       .returning();
 
-    res.status(201).json(newTest[0]);
+    await db.insert(testWorkflows).values(
+      workflowWeights.map((w) => ({
+        testId: newTest.id,
+        workflowId: w.workflowId,
+        weight: w.weight,
+      })),
+    );
+
+    res.status(201).json(newTest);
   } catch (error) {
     console.error("Error creating test:", error);
     res.status(500).json({ message: "Internal server error" });

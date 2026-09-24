@@ -26,7 +26,6 @@ app.use(
 
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
-app.use("/api/endpoints", endpointRoutes);
 app.use("/api/worflows/:projectId", workflowRoutes);
 app.use("/api/tests/:projectId", testRoutes);
 

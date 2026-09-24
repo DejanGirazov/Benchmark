@@ -4,11 +4,11 @@ import { db } from "../db/index";
 import {
   tests,
   workflows,
-  endpoints,
   generators,
   testGeneratorAssignments,
   metrics,
   TestSummary,
+  testWorkflows
 } from "../db/schema";
 import { liveGenerators, sendToGenerator } from "./registry";
 import type { InboundMessage } from "./types";
@@ -22,14 +22,15 @@ export async function startTestOrchestration(testId: string) {
   const notified: string[] = [];
   try{
     const [test] = await db.select().from(tests).where(eq(tests.id, testId));
-  const [workflow] = await db
-    .select()
-    .from(workflows)
-    .where(eq(workflows.id, test.workflowId));
-  const [endpoint] = await db
-    .select()
-    .from(endpoints)
-    .where(eq(endpoints.id, test.endpointId));
+
+  const weightedWorkflows = await db
+    .select({
+      definition: workflows.definition,
+      weight: testWorkflows.weight,
+    })
+    .from(testWorkflows)
+    .innerJoin(workflows, eq(testWorkflows.workflowId, workflows.id))
+    .where(eq(testWorkflows.testId, testId));
 
   // Only generators the DB thinks are online AND that we actually have
   // a live socket for right now (the two can disagree if one crashed uncleanly)
@@ -63,16 +64,16 @@ export async function startTestOrchestration(testId: string) {
       assignedUsers: a.assignedUsers,
     })),
   );
-  for (const a of assignments) {
-      const sent = sendToGenerator(a.generatorId, {
-        type: "start_test",
-        testId,
-        baseUrl: endpoint.baseUrl,
-        workflow: workflow.definition,
-        assignedUsers: a.assignedUsers,
-        durationSeconds: test.durationSeconds,
-        rampUpSeconds: test.rampUpSeconds,
-      });
+   for (const a of assignments) {
+    const sent = sendToGenerator(a.generatorId, {
+      type: "start_test",
+      testId,
+      baseUrl: test.targetUrl,
+      workflows: weightedWorkflows, // was: workflow: workflow.definition
+      assignedUsers: a.assignedUsers,
+      durationSeconds: test.durationSeconds,
+      rampUpSeconds: test.rampUpSeconds,
+    });
       if (!sent) {
         throw new Error(`Generator ${a.generatorId} disconnected before start_test`);
       }

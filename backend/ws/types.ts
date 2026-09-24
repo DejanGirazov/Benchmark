@@ -2,11 +2,24 @@ import type { WorkflowDefinition, TestSummary } from "../db/schema";
 
 // ---------- Backend → Generator ----------
 
+
+interface WorkflowWeight {
+  workflowId: string;
+  weight: number;
+}
+export interface CreateTestBody {
+  name?: string;
+  workflowWeights: WorkflowWeight[];
+  virtualUsers: number;
+  durationSeconds: number;
+  rampUpSeconds?: number;
+  config?: Record<string, unknown>;
+}
 export interface StartTestMessage {
   type: "start_test";
   testId: string;
   baseUrl: string;
-  workflow: WorkflowDefinition;
+  workflows: { definition: WorkflowDefinition; weight: number }[]; // was: workflow: WorkflowDefinition
   assignedUsers: number;
   durationSeconds: number;
   rampUpSeconds: number;

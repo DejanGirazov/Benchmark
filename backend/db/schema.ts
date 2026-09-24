@@ -8,6 +8,7 @@ import {
   real,
   jsonb,
   pgEnum,
+  unique,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -27,35 +28,31 @@ export const generatorStatusEnum = pgEnum("generator_status", [
   "busy",
 ]);
 
-export const users = pgTable("users",{
+export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: varchar("email", { length: 200 }).notNull().unique(),
   passwordHash: text("password_hash").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-})
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
 
 // ---------- Projects ----------
 
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
-  ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ownerId: uuid("owner_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 200 }).notNull(),
   description: text("description"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
-
-// ---------- Endpoints ----------
-
-export const endpoints = pgTable("endpoints", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  name: varchar("name", { length: 200 }).notNull(),
-  baseUrl: text("base_url").notNull(),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  baseUrl: varchar("base_url", { length: 200 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 // ---------- Workflows ----------
@@ -68,8 +65,12 @@ export const workflows = pgTable("workflows", {
   name: varchar("name", { length: 200 }).notNull(),
   description: text("description"),
   definition: jsonb("definition").notNull().$type<WorkflowDefinition>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export interface WorkflowStep {
@@ -94,14 +95,9 @@ export const tests = pgTable("tests", {
   projectId: uuid("project_id")
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
-  workflowId: uuid("workflow_id")
-    .notNull()
-    .references(() => workflows.id, { onDelete: "restrict" }),
-  endpointId: uuid("endpoint_id")
-    .notNull()
-    .references(() => endpoints.id, { onDelete: "restrict" }),
   name: varchar("name", { length: 200 }),
   status: testStatusEnum("status").default("pending").notNull(),
+  targetUrl:varchar("target_url", { length: 200 }).notNull(),
 
   virtualUsers: integer("virtual_users").notNull(),
   durationSeconds: integer("duration_seconds").notNull(),
@@ -115,7 +111,9 @@ export const tests = pgTable("tests", {
 
   summary: jsonb("summary").$type<TestSummary | null>(),
 
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export interface TestSummary {
@@ -128,6 +126,24 @@ export interface TestSummary {
   errorRate: number;
 }
 
+export const testWorkflows = pgTable(
+  "test_workflows",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+
+    testId: uuid("test_id")
+      .notNull()
+      .references(() => tests.id, { onDelete: "cascade" }),
+
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "restrict" }),
+
+    weight: integer("weight").notNull(),
+  },
+  (table) => [unique().on(table.testId, table.workflowId)],
+);
+
 // ---------- Generators ----------
 
 export const generators = pgTable("generators", {
@@ -136,7 +152,9 @@ export const generators = pgTable("generators", {
   status: generatorStatusEnum("status").default("offline").notNull(),
   capacity: jsonb("capacity").$type<GeneratorCapacity>(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export interface GeneratorCapacity {
@@ -184,15 +202,16 @@ export const metrics = pgTable("metrics", {
 // ---------- Relations ----------
 
 export const projectsRelations = relations(projects, ({ many }) => ({
-  endpoints: many(endpoints),
   workflows: many(workflows),
   tests: many(tests),
 }));
 
 export const testsRelations = relations(tests, ({ one, many }) => ({
-  project: one(projects, { fields: [tests.projectId], references: [projects.id] }),
-  workflow: one(workflows, { fields: [tests.workflowId], references: [workflows.id] }),
-  endpoint: one(endpoints, { fields: [tests.endpointId], references: [endpoints.id] }),
+  project: one(projects, {
+    fields: [tests.projectId],
+    references: [projects.id],
+  }),
+  workflows: many(testWorkflows),
   assignments: many(testGeneratorAssignments),
   metrics: many(metrics),
 }));
@@ -201,3 +220,28 @@ export const generatorsRelations = relations(generators, ({ many }) => ({
   assignments: many(testGeneratorAssignments),
   metrics: many(metrics),
 }));
+
+export const workflowsRelations = relations(
+  workflows,
+  ({ one, many }) => ({
+    project: one(projects, {
+      fields: [workflows.projectId],
+      references: [projects.id],
+    }),
+    testWorkflows: many(testWorkflows),
+  })
+);
+
+export const testWorkflowsRelations = relations(
+  testWorkflows,
+  ({ one }) => ({
+    test: one(tests, {
+      fields: [testWorkflows.testId],
+      references: [tests.id],
+    }),
+    workflow: one(workflows, {
+      fields: [testWorkflows.workflowId],
+      references: [workflows.id],
+    }),
+  })
+);

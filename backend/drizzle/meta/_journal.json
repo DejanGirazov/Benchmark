@@ -15,6 +15,13 @@
       "when": 1788450613533,
       "tag": "0001_broad_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790105935576,
+      "tag": "0002_rapid_doomsday",
+      "breakpoints": true
     }
   ]
 }
