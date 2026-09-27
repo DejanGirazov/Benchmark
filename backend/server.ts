@@ -26,8 +26,8 @@ app.use(
 
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
-app.use("/api/worflows/:projectId", workflowRoutes);
-app.use("/api/tests/:projectId", testRoutes);
+app.use("/api/workflows", workflowRoutes);
+app.use("/api/tests", testRoutes);
 
 
 const PORT = Number(process.env.PORT) || 4000;

@@ -1,9 +1,18 @@
 import { Request, Response } from "express";
-import { and, eq,desc , inArray} from "drizzle-orm";
-import { tests, projects, workflows, testWorkflows, metrics} from "../db/schema";
+import { and, eq, desc, inArray } from "drizzle-orm";
+import {
+  tests,
+  projects,
+  workflows,
+  testWorkflows,
+  metrics,
+} from "../db/schema";
 import { db } from "../db/index";
 // You'll create this in your websocket manager module
-import { startTestOrchestration, cancelTestOrchestration } from "../ws/orchestrator";
+import {
+  startTestOrchestration,
+  cancelTestOrchestration,
+} from "../ws/orchestrator";
 import {
   openStream,
   subscribeToTest,
@@ -62,7 +71,12 @@ export const createTest = async (req: Request, res: Response) => {
     const ownedWorkflows = await db
       .select({ id: workflows.id })
       .from(workflows)
-      .where(and(eq(workflows.projectId, projectId), inArray(workflows.id, workflowIds)));
+      .where(
+        and(
+          eq(workflows.projectId, projectId),
+          inArray(workflows.id, workflowIds),
+        ),
+      );
 
     if (ownedWorkflows.length !== new Set(workflowIds).size) {
       return res
@@ -153,7 +167,8 @@ export const startTest = async (req: Request, res: Response) => {
   try {
     const userId = req.user!.id;
     const projectId = req.params.projectId as string;
-    const testId = req.params.id as string;
+    const testId = req.params.testId as string;
+    console.log("test id ", testId);
 
     const project = await getOwnedProject(projectId, userId);
     if (!project) {
@@ -173,7 +188,9 @@ export const startTest = async (req: Request, res: Response) => {
     if (test[0].status !== "pending") {
       return res
         .status(409)
-        .json({ message: `Test cannot be started from status "${test[0].status}"` });
+        .json({
+          message: `Test cannot be started from status "${test[0].status}"`,
+        });
     }
 
     // Orchestration owns: picking generators, writing test_generator_assignments,
@@ -212,7 +229,9 @@ export const cancelTest = async (req: Request, res: Response) => {
     if (test[0].status !== "running" && test[0].status !== "pending") {
       return res
         .status(409)
-        .json({ message: `Test cannot be cancelled from status "${test[0].status}"` });
+        .json({
+          message: `Test cannot be cancelled from status "${test[0].status}"`,
+        });
     }
 
     await cancelTestOrchestration(test[0].id);

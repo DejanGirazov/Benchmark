@@ -7,9 +7,10 @@ export const createProject = async (req: Request, res: Response) => {
   try {
     const { name, description, baseUrl } = req.body;
     const userId = req.user!.id;
-    if (!name) {
-      return res.status(400).json({ message: "Project name is required" });
+    if (!name || !baseUrl) {
+      return res.status(400).json({ message: "Project name and base URL are required" });
     }
+
     const newProjects = await db
       .insert(projects)
       .values({
